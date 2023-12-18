@@ -56,9 +56,9 @@ func NewHeader() Header {
 func (h Header) Encode() ([12]byte, error) {
 
 	var buff *bytes.Buffer = bytes.NewBuffer(make([]byte, 0,12))
-	le := binary.LittleEndian
+	endian := binary.BigEndian
 
-	binary.Write(buff, le, h.PackageID)
+	binary.Write(buff, endian, h.PackageID)
 
 	var tmp byte
 
@@ -109,10 +109,10 @@ func (h Header) Encode() ([12]byte, error) {
 
 	buff.WriteByte(tmp)
 
-	binary.Write(buff, le, h.QDCount)
-	binary.Write(buff, le, h.ANCount)
-	binary.Write(buff, le, h.NSCount)
-	binary.Write(buff, le, h.ARCount)
+	binary.Write(buff, endian, h.QDCount)
+	binary.Write(buff, endian, h.ANCount)
+	binary.Write(buff, endian, h.NSCount)
+	binary.Write(buff, endian, h.ARCount)
 	if buff.Len() != 12 {
 		return [12]byte{}, fmt.Errorf("Encoding header into bytes resulted in array of %d and 12 is expected", buff.Len())
 	}
