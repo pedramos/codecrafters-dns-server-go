@@ -123,13 +123,13 @@ func (h Header) Encode() ([12]byte, error) {
 
 func bool2int(b bool) int {
 	if b {
-		return 0
+		return 1
 	}
-	return 1
+	return 0
 }
 
 func int2bool(i int) bool {
-	if i == 0 {
+	if i == 1 {
 		return true
 	}
 	return false
