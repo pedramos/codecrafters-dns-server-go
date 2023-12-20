@@ -9,21 +9,72 @@ import (
 var endian = binary.BigEndian
 
 type Message struct {
-	h Header
-	q Question
-	// Answer
+	h   Header
+	q   Question
+	ans Answer
 	// Authority
 	// some padding I guess
 }
 
-func DesiredMessage() Message { return Message{DesiredHeader(), DesiredQuestion()} }
+func DesiredMessage() Message {
+	return Message{h: DesiredHeader(), q: DesiredQuestion(), ans: DesiredAnswer()}
+}
 
 func (m Message) Encode() []byte {
 	var buff = new(bytes.Buffer)
 
 	buff.Write(m.h.Encode())
 	buff.Write(m.q.Encode())
-	// fmt.Printf("%#v\n", buff.Bytes())
+	buff.Write(m.ans.Encode())
+
+	//fmt.Printf("%#v\n", buff.Bytes())
+	return buff.Bytes()
+}
+
+type Labels string
+
+func (l Labels) String() string { return string(l) }
+func (l Labels) Encode() []byte {
+	var buff = new(bytes.Buffer)
+	labels := strings.Split(string(l), ".")
+	for _, label := range labels {
+		binary.Write(buff, endian, uint8(len(label)))
+		buff.Write([]byte(label))
+	}
+	buff.WriteByte('\x00')
+	return buff.Bytes()
+}
+
+type Answer struct {
+	//The domain name encoded as a sequence of labels.
+	Name Labels
+	//1 for an A record, 5 for a CNAME record etc., full list here
+	Type uint16
+	//Usually set to 1 (full list here)
+	Class uint16
+	//The duration in seconds a record can be cached before requerying. (Time-To-Live)
+	TTL uint32
+	//Length of the RDATA field in bytes.
+	RDLength uint16
+	//Data specific to the record type (RDATA)
+	RData []byte
+}
+
+func DesiredAnswer() Answer {
+	return Answer{Labels("codecrafters.io"), 1, 1, 60, 4, []byte{'\x08', '\x08', '\x08', '\x08'}}
+}
+
+func (ans Answer) Encode() []byte {
+	var buff = new(bytes.Buffer)
+
+	buff.Write(ans.Name.Encode())
+
+	binary.Write(buff, endian, ans.Type)
+	binary.Write(buff, endian, ans.Class)
+	binary.Write(buff, endian, ans.TTL)
+	binary.Write(buff, endian, ans.RDLength)
+
+	buff.Write(ans.RData)
 	return buff.Bytes()
 }
 
@@ -33,7 +84,7 @@ type Question struct {
 	// Labels are encoded as <length><content>, where <length> is a single byte that specifies
 	// the length of the label, and <content> is the actual content of the label. The sequence of
 	// labels is terminated by a null byte (\x00).
-	Name string
+	Name Labels
 
 	Type  uint16
 	Class uint16
@@ -45,20 +96,13 @@ func (q Question) Encode() []byte {
 
 	var buff = new(bytes.Buffer)
 
-	labels := strings.Split(q.Name, ".")
-	for _, l := range labels {
-		binary.Write(buff, endian, uint8(len(l)))
-		buff.Write([]byte(l))
-	}
-
-	buff.WriteByte('\x00')
+	buff.Write(q.Name.Encode())
 
 	binary.Write(buff, endian, q.Type)
 	binary.Write(buff, endian, q.Class)
 	return buff.Bytes()
 }
 
-// https://app.codecrafters.io/courses/dns-server/stages/2?repo=6c3bc592-c18b-4ce0-a5b2-cc25174e4fa0
 type Header struct {
 	// packade ID: A random ID assigned to query packets. Response packets must reply with the same ID.
 	PackageID uint16
@@ -92,7 +136,8 @@ func DesiredHeader() Header {
 	return Header{
 		PackageID: 1234,
 		QR:        int2bool(1),
-		QDCount: 1,
+		QDCount:   1,
+		ANCount:   1,
 	}
 }
 
