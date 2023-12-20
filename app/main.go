@@ -36,7 +36,7 @@ func main() {
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
 		// Create an empty response
-		response, err := NewHeader().Encode()
+		response := DesiredMessage().Encode()
 		if err != nil {
 			log.Fatalf("Unable to send response: %v\n", err)
 		}
@@ -46,5 +46,4 @@ func main() {
 			fmt.Println("Failed to send response:", err)
 		}
 	}
-
 }

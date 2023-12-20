@@ -3,15 +3,59 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
+	"strings"
 )
 
+var endian = binary.BigEndian
+
 type Message struct {
-	Header
-	// Question
+	h Header
+	q Question
 	// Answer
 	// Authority
 	// some padding I guess
+}
+
+func DesiredMessage() Message { return Message{DesiredHeader(), DesiredQuestion()} }
+
+func (m Message) Encode() []byte {
+	var buff = new(bytes.Buffer)
+
+	buff.Write(m.h.Encode())
+	buff.Write(m.q.Encode())
+	// fmt.Printf("%#v\n", buff.Bytes())
+	return buff.Bytes()
+}
+
+type Question struct {
+	// Domain names in DNS packets are encoded as a sequence of labels.
+	//
+	// Labels are encoded as <length><content>, where <length> is a single byte that specifies
+	// the length of the label, and <content> is the actual content of the label. The sequence of
+	// labels is terminated by a null byte (\x00).
+	Name string
+
+	Type  uint16
+	Class uint16
+}
+
+func DesiredQuestion() Question { return Question{"codecrafters.io", 1, 1} }
+
+func (q Question) Encode() []byte {
+
+	var buff = new(bytes.Buffer)
+
+	labels := strings.Split(q.Name, ".")
+	for _, l := range labels {
+		binary.Write(buff, endian, uint8(len(l)))
+		buff.Write([]byte(l))
+	}
+
+	buff.WriteByte('\x00')
+
+	binary.Write(buff, endian, q.Type)
+	binary.Write(buff, endian, q.Class)
+	return buff.Bytes()
 }
 
 // https://app.codecrafters.io/courses/dns-server/stages/2?repo=6c3bc592-c18b-4ce0-a5b2-cc25174e4fa0
@@ -44,19 +88,17 @@ type Header struct {
 	ARCount uint16
 }
 
-func NewHeader() Header {
+func DesiredHeader() Header {
 	return Header{
 		PackageID: 1234,
 		QR:        int2bool(1),
+		QDCount: 1,
 	}
 }
 
+func (h Header) Encode() []byte {
 
-
-func (h Header) Encode() ([12]byte, error) {
-
-	var buff *bytes.Buffer = bytes.NewBuffer(make([]byte, 0,12))
-	endian := binary.BigEndian
+	var buff = new(bytes.Buffer)
 
 	binary.Write(buff, endian, h.PackageID)
 
@@ -113,12 +155,8 @@ func (h Header) Encode() ([12]byte, error) {
 	binary.Write(buff, endian, h.ANCount)
 	binary.Write(buff, endian, h.NSCount)
 	binary.Write(buff, endian, h.ARCount)
-	if buff.Len() != 12 {
-		return [12]byte{}, fmt.Errorf("Encoding header into bytes resulted in array of %d and 12 is expected", buff.Len())
-	}
-	var m [12]byte
-	copy(m[:], buff.Bytes())
-	return m, nil
+
+	return buff.Bytes()
 }
 
 func bool2int(b bool) int {
