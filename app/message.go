@@ -62,13 +62,13 @@ func DecodeMessage(input []byte) (Message, error) {
 		err error
 	)
 
-	fmt.Printf("header=%d\n", len(input))
+	// fmt.Printf("header=%d\n", len(input))
 
 	m.h, input, err = DecodeHeader(input)
 	if err != nil {
 		return m, fmt.Errorf("parsing message: %v", err)
 	}
-	fmt.Printf("question=%d\n", len(input))
+	// fmt.Printf("question=%d\n", len(input))
 	m.q, input, err = DecodeQuestion(input)
 	if err != nil {
 		return m, fmt.Errorf("parsing message: %v", err)
@@ -85,7 +85,7 @@ func (m *Message) Reply() error {
 	} else {
 		copy(m.h.RCode[:], uint2Bits(4, 4))
 	}
-	m.ans = DesiredAnswer()
+	m.ans = AnswerQuestion(m.q)
 	return nil
 }
 
@@ -162,6 +162,17 @@ type Answer struct {
 	RDLength uint16
 	//Data specific to the record type (RDATA)
 	RData []byte
+}
+
+func AnswerQuestion(q Question) Answer {
+	return Answer{
+		Name:     q.Name,
+		Type:     1,
+		Class:    1,
+		TTL:      60,
+		RDLength: 4,
+		RData:    []byte{'\x08', '\x08', '\x08', '\x08'},
+	}
 }
 
 func DesiredAnswer() Answer {
