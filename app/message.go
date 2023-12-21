@@ -3,10 +3,46 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"strconv"
 	"strings"
 )
 
 var endian = binary.BigEndian
+
+func bool2int(b bool) uint16 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func int2bool(i uint16) bool {
+	if i == 1 {
+		return true
+	}
+	return false
+}
+
+func bits2Uint(bits []bool) uint16 {
+	var v uint16
+	for _, b := range bits {
+		v <<= 1
+		if b {
+			v |= 1
+		}
+	}
+	return v
+}
+
+func uint2Bits(v uint16, numBits int) []bool {
+	b := make([]bool, 16)
+	for i := 0; v != 0; i++ {
+		b[15-i] = int2bool(1 & v)
+		v = v >> 1
+	}
+	return b[16-numBits:]
+}
 
 type Message struct {
 	h   Header
@@ -18,6 +54,33 @@ type Message struct {
 
 func DesiredMessage() Message {
 	return Message{h: DesiredHeader(), q: DesiredQuestion(), ans: DesiredAnswer()}
+}
+
+func DecodeMessage(input []byte) (Message, error) {
+	var (
+		m   = Message{}
+		err error
+	)
+
+	m.h, input, err = DecodeHeader(input)
+	if err != nil {
+		return m, fmt.Errorf("parsing header: %v", err)
+	}
+	return m, nil
+}
+
+func (m *Message) Reply() {
+	m.h.QR = int2bool(1)
+	m.h.ANCount = 1
+
+	if m.h.OpCode == [4]bool{int2bool(0), int2bool(0), int2bool(0), int2bool(0)} {
+		copy(m.h.RCode[:], uint2Bits(0, 4))
+	} else {
+		copy(m.h.RCode[:], uint2Bits(4, 4))
+	}
+
+	m.q = DesiredQuestion()
+	m.ans = DesiredAnswer()
 }
 
 func (m Message) Encode() []byte {
@@ -141,6 +204,78 @@ func DesiredHeader() Header {
 	}
 }
 
+func DecodeHeader(input []byte) (Header, []byte, error) {
+	var (
+		h      Header
+		mask   uint64
+		mask16 uint16
+		tmp    uint16
+		t      uint16
+	)
+
+	h.PackageID = endian.Uint16(input)
+	input = input[2:]
+
+	//  QR / OpCode / AA / TC / RD
+
+	bitsBlock := endian.Uint16(input)
+	tmp = bitsBlock >> 8
+	input = input[2:]
+
+	h.QR = int2bool(tmp >> 7)
+
+	mask, _ = strconv.ParseUint("01111000", 2, 16)
+	mask16 = uint16(mask)
+	t = (tmp & mask16) >> 3
+	for i := 0; i < 4; i++ {
+		h.OpCode[3-i] = int2bool((t >> i) & 1)
+	}
+
+	mask, _ = strconv.ParseUint("100", 2, 16)
+	mask16 = uint16(mask)
+	h.AA = int2bool((tmp & mask16) >> 2)
+
+	mask, _ = strconv.ParseUint("10", 2, 16)
+	mask16 = uint16(mask)
+	h.TC = int2bool((tmp & mask16) >> 1)
+
+	mask, _ = strconv.ParseUint("1", 2, 16)
+	mask16 = uint16(mask)
+	h.RD = int2bool(tmp & mask16)
+
+	// RA / Z / RCode
+
+	mask, _ = strconv.ParseUint("11111111", 2, 16)
+	mask16 = uint16(mask)
+	tmp = bitsBlock & mask16
+
+	h.RA = int2bool(tmp >> 7)
+
+	mask, _ = strconv.ParseUint("01110000", 2, 16)
+	mask16 = uint16(mask)
+	t = (tmp & mask16) >> 4
+	for i := 0; i < 3; i++ {
+		h.Z[2-i] = int2bool((t >> i) & 1)
+	}
+
+	mask, _ = strconv.ParseUint("00001111", 2, 16)
+	mask16 = uint16(mask)
+	t = tmp & mask16
+	//fmt.Printf("got=%#v\n", strconv.FormatInt(int64(t), 2))
+	for i := 0; i < 4; i++ {
+		h.RCode[3-i] = int2bool((t << i) & 1)
+	}
+	//fmt.Printf("%#v\n", h.RCode)
+	h.QDCount = endian.Uint16(input)
+	input = input[2:]
+	h.ANCount = endian.Uint16(input)
+	input = input[2:]
+	h.NSCount = endian.Uint16(input)
+	input = input[2:]
+
+	return h, input, nil
+}
+
 func (h Header) Encode() []byte {
 
 	var buff = new(bytes.Buffer)
@@ -202,18 +337,4 @@ func (h Header) Encode() []byte {
 	binary.Write(buff, endian, h.ARCount)
 
 	return buff.Bytes()
-}
-
-func bool2int(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func int2bool(i int) bool {
-	if i == 1 {
-		return true
-	}
-	return false
 }

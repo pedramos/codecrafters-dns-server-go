@@ -36,10 +36,12 @@ func main() {
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
 		// Create an empty response
-		response := DesiredMessage().Encode()
+		m, err := DecodeMessage([]byte(receivedData))
 		if err != nil {
 			log.Fatalf("Unable to send response: %v\n", err)
 		}
+		m.Reply()
+		response := m.Encode()
 
 		_, err = udpConn.WriteToUDP(response[:], source)
 		if err != nil {

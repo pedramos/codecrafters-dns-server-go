@@ -1,22 +1,16 @@
 package main
 
 import (
-	"os/exec"
+	"strconv"
 	"testing"
 )
 
-// dig @127.0.0.1 -p 2053 +noedns codecrafters.io
-func TestMain(t *testing.T) {
-	appcmd := exec.Command("./app")
-	if err := appcmd.Start(); err != nil {
-		t.Fatal(err)
+func TestUint2Bits(t *testing.T) {
+	tmp := uint2Bits(4, 4)
+	var b [4]bool
+	copy(b[:], tmp)
+	if b != [4]bool{false, true, false, false} {
+		t.Errorf("four=%s", strconv.FormatInt(4, 2))
+		t.Errorf("Expected []bool{false, true, false, false}, got :%#v\n", b)
 	}
-	digcmd := exec.Command("dig", "@127.0.0.1", "-p", "2053", "+noedns", "+noall", "codecrafters.io/app")
-	if err := digcmd.Run(); err != nil {
-		t.Fatal(err)
-	}
-
-	err := appcmd.Wait()
-	t.Errorf("Command finished with error: %v", err)
-
 }
