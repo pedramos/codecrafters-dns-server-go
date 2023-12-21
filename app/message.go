@@ -62,14 +62,21 @@ func DecodeMessage(input []byte) (Message, error) {
 		err error
 	)
 
+	fmt.Printf("header=%d\n", len(input))
+
 	m.h, input, err = DecodeHeader(input)
 	if err != nil {
-		return m, fmt.Errorf("parsing header: %v", err)
+		return m, fmt.Errorf("parsing message: %v", err)
+	}
+	fmt.Printf("question=%d\n", len(input))
+	m.q, input, err = DecodeQuestion(input)
+	if err != nil {
+		return m, fmt.Errorf("parsing message: %v", err)
 	}
 	return m, nil
 }
 
-func (m *Message) Reply() {
+func (m *Message) Reply() error {
 	m.h.QR = int2bool(1)
 	m.h.ANCount = 1
 
@@ -78,9 +85,8 @@ func (m *Message) Reply() {
 	} else {
 		copy(m.h.RCode[:], uint2Bits(4, 4))
 	}
-
-	m.q = DesiredQuestion()
 	m.ans = DesiredAnswer()
+	return nil
 }
 
 func (m Message) Encode() []byte {
@@ -95,6 +101,41 @@ func (m Message) Encode() []byte {
 }
 
 type Labels string
+
+func DecodeLabels(input []byte) (Labels, []byte, error) {
+	var (
+		r    = bytes.NewReader(input)
+		buff = new(bytes.Buffer)
+		sb   strings.Builder
+	)
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return Labels(""), []byte{}, fmt.Errorf("reading and parsing label: %v", err)
+		}
+		if b == '\x00' {
+			break
+		}
+		if sb.Len() != 0 {
+			sb.WriteRune('.')
+		}
+		sz := uint8(b)
+
+		buff.Reset()
+		for i := uint8(0); i < sz; i++ {
+			b, err = r.ReadByte()
+			if err != nil {
+				return Labels(""), []byte{}, fmt.Errorf("reading and parsing label: %v", err)
+			}
+			buff.WriteByte(b)
+		}
+		sb.Write(buff.Bytes())
+
+	}
+	n := len(input) - r.Len()
+
+	return Labels(sb.String()), input[n:], nil
+}
 
 func (l Labels) String() string { return string(l) }
 func (l Labels) Encode() []byte {
@@ -154,6 +195,25 @@ type Question struct {
 }
 
 func DesiredQuestion() Question { return Question{"codecrafters.io", 1, 1} }
+
+func DecodeQuestion(input []byte) (Question, []byte, error) {
+	var (
+		q   Question
+		err error
+	)
+
+	q.Name, input, err = DecodeLabels(input)
+	if err != nil {
+		return q, input, fmt.Errorf("reading and parsing question section: %v", err)
+	}
+	q.Type = endian.Uint16(input)
+	input = input[2:]
+
+	q.Class = endian.Uint16(input)
+	input = input[2:]
+
+	return q, input, nil
+}
 
 func (q Question) Encode() []byte {
 
@@ -271,6 +331,8 @@ func DecodeHeader(input []byte) (Header, []byte, error) {
 	h.ANCount = endian.Uint16(input)
 	input = input[2:]
 	h.NSCount = endian.Uint16(input)
+	input = input[2:]
+	h.ARCount = endian.Uint16(input)
 	input = input[2:]
 
 	return h, input, nil
