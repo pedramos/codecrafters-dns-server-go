@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -48,7 +47,7 @@ func uint2Bits(v uint16, numBits int) []bool {
 type Message struct {
 	h   Header
 	q   []Question
-	ans Answer
+	ans []Answer
 	// Authority
 	// some padding I guess
 }
@@ -67,24 +66,30 @@ func DecodeMessage(input []byte) (Message, error) {
 	if err != nil {
 		return m, fmt.Errorf("parsing message: %v", err)
 	}
+	m.q = make([]Question, m.h.QDCount)
 	// fmt.Printf("question=%d\n", len(input))
-	m.q, offset, err = DecodeQuestion(input, offset, m.h)
-	if err != nil {
-		return m, fmt.Errorf("parsing message: %v", err)
+	for qcount := range m.q {
+		m.q[qcount], offset, err = DecodeQuestion(input, offset, m.h)
+		if err != nil {
+			return m, fmt.Errorf("parsing message: %v", err)
+		}
 	}
+
 	return m, nil
 }
 
 func (m *Message) Reply() error {
 	m.h.QR = int2bool(1)
-	m.h.ANCount = 1
 
 	if m.h.OpCode == [4]bool{int2bool(0), int2bool(0), int2bool(0), int2bool(0)} {
 		copy(m.h.RCode[:], uint2Bits(0, 4))
 	} else {
 		copy(m.h.RCode[:], uint2Bits(4, 4))
 	}
-	m.ans = AnswerQuestion(m.q)
+
+	for _, q := range m.q {
+		m.ans = append(m.ans, AnswerQuestion(q))
+	}
 	return nil
 }
 
@@ -92,8 +97,12 @@ func (m Message) Encode() []byte {
 	var buff = new(bytes.Buffer)
 
 	buff.Write(m.h.Encode())
-	buff.Write(m.q.Encode())
-	buff.Write(m.ans.Encode())
+	for _, q := range m.q {
+		buff.Write(q.Encode())
+	}
+	for _, a := range m.ans {
+		buff.Write(a.Encode())
+	}
 
 	//fmt.Printf("%#v\n", buff.Bytes())
 	return buff.Bytes()
@@ -101,69 +110,54 @@ func (m Message) Encode() []byte {
 
 type Labels []string
 
-func DecodeLabels(input []byte, offset int) (Labels, int, error) {
+func DecodeLabels(data []byte, offset int) (Labels, int, error) {
 	var (
+		input  = data[offset:]
 		r      = bytes.NewReader(input)
-		buff   = new(bytes.Buffer)
 		sb     strings.Builder
 		labels Labels
 	)
 
-	input = input[offset:]
-
-	for n > 0 {
-		b, err := r.ReadByte()
-		if err != nil {
-			return Labels{}, offset, fmt.Errorf("reading and parsing label: %v", err)
-		}
+	b, err := r.ReadByte()
+	if err != nil {
+		return Labels{}, offset, fmt.Errorf("reading and parsing label: %v", err)
+	}
+	for {
 		switch {
 		case b == '\x00':
-			labels = append(labels, sb.String())
-			sb.Reset()
-			n--
-			continue
+			break
 		// is a pointer
 		case b>>6 == 3:
 			ptr := int(binary.BigEndian.Uint16(input) & 0x3FFF)
-			label := parseLabel(bytes.NewReader(input[ptr:]))
-			sb.Write(label)
+			var l Labels
+			l, offset, err = DecodeLabels(data[ptr:], offset)
+			labels = append(labels, l...)
+			break
 		case b>>6 == 0:
 			r.UnreadByte()
-			label := parseLabel(r)
 		}
 
-		if sb.Len() != 0 {
-			sb.WriteRune('.')
-		}
 		sz := uint8(b)
 
-		buff.Reset()
 		for i := uint8(0); i < sz; i++ {
 			b, err = r.ReadByte()
 			if err != nil {
 				return Labels{}, offset, fmt.Errorf("reading and parsing label: %v", err)
 			}
-			buff.WriteByte(b)
+			sb.WriteByte(b)
 		}
-		sb.Write(buff.Bytes())
+		labels = append(labels, sb.String())
 	}
 	labelSz := len(input) - r.Len()
 
 	return labels, labelSz, nil
 }
 
-func parseLabel(io.Reader) Label {
-
-}
-
 func (labels Labels) Encode() []byte {
 	var buff = new(bytes.Buffer)
 	for _, l := range labels {
-		labels := strings.Split(l, ".")
-		for _, label := range labels {
-			binary.Write(buff, endian, uint8(len(label)))
-			buff.Write([]byte(label))
-		}
+		binary.Write(buff, endian, uint8(len(l)))
+		buff.Write([]byte(l))
 		buff.WriteByte('\x00')
 	}
 	return buff.Bytes()
@@ -229,7 +223,7 @@ func DecodeQuestion(input []byte, offset int, h Header) (Question, int, error) {
 
 	input = input[offset:]
 
-	q.Name, offset, err = DecodeLabels(input, offset, h.QDCount)
+	q.Name, offset, err = DecodeLabels(input, offset)
 	if err != nil {
 		return q, offset, fmt.Errorf("reading and parsing question section: %v", err)
 	}
